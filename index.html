@@ -7,18 +7,34 @@
     <meta name="theme-color" content="#4f46e5">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="إدارة الدروس">
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="192x192" href="app-icon-192.png">
-    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="app-icon-512.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
     <title>نظام إدارة الدروس</title>
     <script>
-      // الالتقاط المبكر لحدث تثبيت الـ PWA لضمان عدم ضياعه أثناء تحميل الصفحة
+      // ──────────────────────────────────────────────────────────
+      //  التقاط مبكر لحدث تثبيت الـ PWA قبل أي شيء في الصفحة
+      //  (يجب أن يكون هنا في <head> لضمان عدم ضياع الحدث)
+      // ──────────────────────────────────────────────────────────
       window._deferredPrompt = null;
-      window.addEventListener('beforeinstallprompt', (e) => {
+      window._pwaInstallReady = false;
+
+      window.addEventListener('beforeinstallprompt', function(e) {
         e.preventDefault();
         window._deferredPrompt = e;
+        window._pwaInstallReady = true;
+        console.log('[PWA] beforeinstallprompt captured ✅');
         if (typeof _showInstallBtn === 'function') _showInstallBtn();
+      });
+
+      window.addEventListener('appinstalled', function() {
+        window._deferredPrompt = null;
+        window._pwaInstallReady = false;
+        console.log('[PWA] App installed successfully ✅');
+        if (typeof _hideInstallBtn === 'function') _hideInstallBtn();
       });
     </script>
     <style>
@@ -3872,134 +3888,154 @@
     /* ── PWA Install Logic ─── */
     let _deferredPrompt = window._deferredPrompt || null;
 
-    // هل التطبيق مثبَّت ويعمل بالفعل كتطبيق مستقل (standalone)؟
     function _isRunningAsInstalledPWA() {
       return window.matchMedia('(display-mode: standalone)').matches
-          || window.navigator.standalone === true; // iOS Safari
+          || window.matchMedia('(display-mode: minimal-ui)').matches
+          || window.navigator.standalone === true;
     }
 
     function _showInstallBtn() {
       const btn = document.getElementById('pwa-install-btn');
-      if (btn && !_isRunningAsInstalledPWA()) btn.style.display = 'flex';
+      if (btn && !_isRunningAsInstalledPWA()) {
+        btn.style.display = 'flex';
+        btn.title = window._pwaInstallReady
+          ? 'اضغط لتثبيت التطبيق على جهازك'
+          : 'تثبيت التطبيق';
+      }
     }
+
     function _hideInstallBtn() {
       const btn = document.getElementById('pwa-install-btn');
       if (btn) btn.style.display = 'none';
     }
 
-    // المتصفح أعلن دعمه لإظهار مطالبة التثبيت الأصلية (Chrome/Edge/Android)
+    // تحديث المرجع المحلي عند التقاط الحدث المبكر
+    if (window._deferredPrompt) {
+      _deferredPrompt = window._deferredPrompt;
+    }
+
+    // المتصفح يحتفظ بالحدث هنا أيضاً (redundant safety net)
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       window._deferredPrompt = e;
       _deferredPrompt = e;
+      window._pwaInstallReady = true;
       _showInstallBtn();
     });
 
     window.addEventListener('appinstalled', () => {
       window._deferredPrompt = null;
       _deferredPrompt = null;
+      window._pwaInstallReady = false;
       _hideInstallBtn();
+      if (typeof showNotification === 'function') {
+        showNotification('🎉 تم تثبيت التطبيق بنجاح على جهازك!', 'success');
+      }
     });
 
-    // إظهار الزر بمجرد جاهزية الصفحة طالما التطبيق غير مثبَّت بالفعل
+    // إظهار الزر فور جاهزية الصفحة
     document.addEventListener('DOMContentLoaded', () => {
-      if (!_isRunningAsInstalledPWA()) _showInstallBtn();
+      if (!_isRunningAsInstalledPWA()) {
+        _showInstallBtn();
+      } else {
+        _hideInstallBtn();
+      }
     });
 
-    function showInstallGuideModal() {
+    function showInstallGuideModal(nativeAvailable) {
       const existing = document.getElementById('pwa-guide-modal');
       if (existing) existing.remove();
+
+      const nativeBanner = nativeAvailable ? `
+        <div style="background: linear-gradient(135deg, rgba(79,70,229,0.25), rgba(124,58,237,0.25)); border: 1px solid rgba(79,70,229,0.4); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
+          <span style="font-size: 1.5rem;">⬇️</span>
+          <div>
+            <div style="color: #a5b4fc; font-weight: 700; font-size: 0.92rem;">متصفحك يدعم التثبيت المباشر!</div>
+            <div style="color: #cbd5e1; font-size: 0.82rem; margin-top: 2px;">ابحث عن أيقونة <b style="color:#fbbf24;">⊕</b> أو <b style="color:#fbbf24;">تثبيت</b> في شريط العنوان أعلى المتصفح.</div>
+          </div>
+        </div>` : '';
 
       const modal = document.createElement('div');
       modal.id = 'pwa-guide-modal';
       modal.innerHTML = `
-        <div style="position: fixed; inset: 0; z-index: 999999; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 20px; font-family: 'Outfit', 'Segoe UI', sans-serif;" onclick="if(event.target===this) this.remove()">
-          <div style="background: #1e293b; color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; max-width: 520px; width: 100%; padding: 26px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); direction: rtl; position: relative; animation: modalFadeIn 0.3s ease-out;">
-            <style>
-              @keyframes modalFadeIn {
-                from { opacity: 0; transform: scale(0.95) translateY(10px); }
-                to   { opacity: 1; transform: scale(1) translateY(0); }
-              }
-            </style>
-            <button onclick="document.getElementById('pwa-guide-modal').remove()" style="position: absolute; top: 16px; left: 16px; background: rgba(255,255,255,0.1); border: none; color: #94a3b8; border-radius: 50%; width: 34px; height: 34px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center;">✕</button>
-            
-            <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 18px;">
-              <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4f46e5, #7c3aed); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow: 0 8px 20px rgba(79,70,229,0.4);">📲</div>
+        <div style="position:fixed;inset:0;z-index:999999;background:rgba(15,23,42,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:20px;font-family:'Outfit','Segoe UI',sans-serif;" onclick="if(event.target===this)this.remove()">
+          <div style="background:#1e293b;color:white;border:1px solid rgba(255,255,255,0.1);border-radius:20px;max-width:530px;width:100%;padding:26px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.6);direction:rtl;position:relative;animation:pwaFadeIn 0.3s ease-out;">
+            <style>@keyframes pwaFadeIn{from{opacity:0;transform:scale(0.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}</style>
+            <button onclick="document.getElementById('pwa-guide-modal').remove()" style="position:absolute;top:14px;left:14px;background:rgba(255,255,255,0.08);border:none;color:#94a3b8;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:0.95rem;display:flex;align-items:center;justify-content:center;">✕</button>
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+              <img src="app-icon-192.png" width="52" height="52" style="border-radius:14px;box-shadow:0 8px 20px rgba(79,70,229,0.4);" onerror="this.style.display='none'">
               <div>
-                <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: #f8fafc;">تثبيت التطبيق على جهازك</h3>
-                <p style="margin: 3px 0 0; font-size: 0.82rem; color: #94a3b8;">خطوات بسيطة لتثبيت التطبيق وتشغيله بدون إنترنت</p>
+                <h3 style="margin:0;font-size:1.2rem;font-weight:800;color:#f8fafc;">تثبيت التطبيق على جهازك</h3>
+                <p style="margin:3px 0 0;font-size:0.8rem;color:#94a3b8;">اتبع الخطوة المناسبة لجهازك</p>
               </div>
             </div>
-
-            <div style="display: flex; flex-direction: column; gap: 12px; background: #0f172a; padding: 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 20px;">
-              <div style="display: flex; align-items: flex-start; gap: 10px;">
-                <span style="background: rgba(79,70,229,0.25); color: #818cf8; font-weight: 800; border-radius: 8px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.85rem;">1</span>
-                <div>
-                  <strong style="color: #60a5fa; font-size: 0.92rem;">📱 أندرويد (Chrome):</strong>
-                  <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 2px;">اضغط قائمة المتصفح <b style="color:#fbbf24;">(⋮)</b> بالأعلى ➔ اختر <b style="color:#34d399;">"إضافة إلى الشاشة الرئيسية"</b> أو <b style="color:#34d399;">"تثبيت التطبيق"</b>.</div>
-                </div>
+            ${nativeBanner}
+            <div style="display:flex;flex-direction:column;gap:10px;background:#0f172a;padding:14px;border-radius:14px;border:1px solid rgba(255,255,255,0.06);margin-bottom:18px;">
+              <div style="display:flex;align-items:flex-start;gap:10px;">
+                <span style="background:rgba(79,70,229,0.3);color:#818cf8;font-weight:800;border-radius:8px;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:0.82rem;">1</span>
+                <div><strong style="color:#60a5fa;font-size:0.88rem;">📱 أندرويد (Chrome):</strong><br><span style="font-size:0.82rem;color:#cbd5e1;">قائمة المتصفح <b style="color:#fbbf24;">(⋮)</b> بالأعلى ➔ <b style="color:#34d399;">"إضافة إلى الشاشة الرئيسية"</b> أو <b style="color:#34d399;">"تثبيت التطبيق"</b></span></div>
               </div>
-
-              <div style="display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
-                <span style="background: rgba(79,70,229,0.25); color: #818cf8; font-weight: 800; border-radius: 8px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.85rem;">2</span>
-                <div>
-                  <strong style="color: #f472b6; font-size: 0.92rem;">🍏 آيفون / آيباد (Safari):</strong>
-                  <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 2px;">اضغط زر المشاركة أسفل الشاشة <b style="color:#fbbf24;">(Share ⎋)</b> ➔ اختر <b style="color:#34d399;">"إضافة إلى الشاشة الرئيسية" (Add to Home Screen)</b>.</div>
-                </div>
+              <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid rgba(255,255,255,0.06);padding-top:10px;">
+                <span style="background:rgba(79,70,229,0.3);color:#818cf8;font-weight:800;border-radius:8px;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:0.82rem;">2</span>
+                <div><strong style="color:#f472b6;font-size:0.88rem;">🍏 آيفون (Safari):</strong><br><span style="font-size:0.82rem;color:#cbd5e1;">زر المشاركة <b style="color:#fbbf24;">(Share ⎋)</b> أسفل الشاشة ➔ <b style="color:#34d399;">"إضافة إلى الشاشة الرئيسية"</b></span></div>
               </div>
-
-              <div style="display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
-                <span style="background: rgba(79,70,229,0.25); color: #818cf8; font-weight: 800; border-radius: 8px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.85rem;">3</span>
-                <div>
-                  <strong style="color: #34d399; font-size: 0.92rem;">💻 الكمبيوتر (Chrome / Edge):</strong>
-                  <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 2px;">اضغط أيقونة التثبيت <b style="color:#fbbf24;">(⊕)</b> في شريط العنوان بالأعلى بجوار الرابط.</div>
-                </div>
+              <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid rgba(255,255,255,0.06);padding-top:10px;">
+                <span style="background:rgba(79,70,229,0.3);color:#818cf8;font-weight:800;border-radius:8px;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:0.82rem;">3</span>
+                <div><strong style="color:#34d399;font-size:0.88rem;">💻 كمبيوتر (Chrome / Edge):</strong><br><span style="font-size:0.82rem;color:#cbd5e1;">أيقونة التثبيت <b style="color:#fbbf24;">(⊕)</b> في شريط العنوان ➔ اضغط <b style="color:#34d399;">"تثبيت"</b></span></div>
               </div>
             </div>
-
-            <button onclick="document.getElementById('pwa-guide-modal').remove()" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; border: none; padding: 12px; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 0.95rem; width: 100%; box-shadow: 0 4px 14px rgba(79,70,229,0.35);">فهمت ذلك 👍</button>
+            <button onclick="document.getElementById('pwa-guide-modal').remove()" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;border:none;padding:12px;border-radius:12px;font-weight:700;cursor:pointer;font-size:0.92rem;width:100%;box-shadow:0 4px 14px rgba(79,70,229,0.35);">فهمت ذلك 👍</button>
           </div>
         </div>`;
       document.body.appendChild(modal);
     }
 
     async function triggerPWAInstall() {
+      // لو التطبيق مثبت بالفعل
       if (_isRunningAsInstalledPWA()) {
         if (typeof showNotification === 'function') {
-          showNotification('التطبيق مثبت بالفعل ويعمل كتطبيق مستقل ✅', 'success');
-        } else {
-          alert('التطبيق مثبت بالفعل! ✅');
+          showNotification('✅ التطبيق مثبت بالفعل ويعمل كتطبيق مستقل!', 'success');
         }
         _hideInstallBtn();
         return;
       }
 
+      // جرب استخدام الحدث المحفوظ في window أو المتغير المحلي
       const promptEvent = window._deferredPrompt || _deferredPrompt;
 
-      if (!promptEvent) {
-        showInstallGuideModal();
-        return;
-      }
-
-      try {
-        promptEvent.prompt();
-        const { outcome } = await promptEvent.userChoice;
-        window._deferredPrompt = null;
-        _deferredPrompt = null;
-        if (outcome === 'accepted') {
-          _hideInstallBtn();
-          if (typeof showNotification === 'function') {
-            showNotification('تم تثبيت التطبيق بنجاح! 🎉', 'success');
+      if (promptEvent) {
+        try {
+          await promptEvent.prompt();
+          const { outcome } = await promptEvent.userChoice;
+          window._deferredPrompt = null;
+          _deferredPrompt = null;
+          window._pwaInstallReady = false;
+          if (outcome === 'accepted') {
+            _hideInstallBtn();
+            if (typeof showNotification === 'function') {
+              showNotification('🎉 تم تثبيت التطبيق بنجاح!', 'success');
+            }
+          } else {
+            if (typeof showNotification === 'function') {
+              showNotification('💡 يمكنك تثبيت التطبيق لاحقاً من شريط العنوان أعلى المتصفح.', 'info');
+            }
           }
+        } catch (err) {
+          console.warn('[PWA] prompt() failed:', err);
+          showInstallGuideModal(false);
         }
-      } catch (err) {
-        console.error('PWA Install Prompt Error:', err);
-        showInstallGuideModal();
+      } else {
+        // الحدث غير متاح - اعرض التعليمات
+        console.log('[PWA] No deferred prompt available, showing guide modal');
+        showInstallGuideModal(false);
       }
     }
 
+    // تصدير للاستخدام العام
     window._showInstallBtn = _showInstallBtn;
+    window._hideInstallBtn = _hideInstallBtn;
     window.triggerPWAInstall = triggerPWAInstall;
+    window.showInstallGuideModal = showInstallGuideModal;
     </script>
 
 </body>
