@@ -10938,14 +10938,13 @@ const DEVICE_SYNC_FULL_TABLES = [
 
 function getCloudSyncTenantId() {
     const profile = (typeof getProgramProfile === 'function') ? getProgramProfile() : {};
+    // الأولوية: إعداد صريح مخزّن ← اسم البرنامج ← 'default'
+    // لا نستخدم hostname أبدًا حتى لا يتغيّر الـ tenant بتغيير الاستضافة
     const explicit = db?._settings?.cloudSyncTenantId || profile.cloudSyncTenantId;
     const profileName = [profile.appName, profile.centerName, profile.teacherName]
         .filter(Boolean)
         .join('-');
-    const hostPathFallback = (typeof location !== 'undefined' && location.hostname)
-        ? (location.hostname + '-' + (location.pathname || '').replace(/\/[^/]*$/, ''))
-        : '';
-    const source = explicit || profileName || hostPathFallback || 'default';
+    const source = explicit || profileName || 'default';
     return String(source)
         .trim()
         .toLowerCase()
@@ -10963,15 +10962,24 @@ async function getAllTenantRefs(firestore) {
     const mainTenantId = getCloudSyncTenantId();
     refsMap.set(mainTenantId, firestore.collection('_tenants').doc(mainTenantId));
 
-    // قائمة المستأجرين القدامى المعروفين والافتراضيين (بما فيها المستأجر القديم الظاهر في الصورة)
+    // قائمة المستأجرين القدامى المعروفين والافتراضيين — يُضاف هنا أي tenant قديم
+    // لضمان أن أي استضافة جديدة تقرأ بيانات الاستضافات القديمة كلها
     const candidateTenantIds = [
+        // ── tenants من الـ hostname القديم (d-wondershare) ──
         'd-wondershare-d9-85-d8-ad-d9-85-d8-af-d8-a8-d9-83-d8-b1',
         'd-wondershare-d9-85-d8-ad-d9-85-d8-af',
+        'd-wondershare',
+        // ── tenants من GitHub Pages القديمة ──
         'ddfvdjbdksv-spec-github-io-mohamed-rehab',
         'hhhhvjbh71-web-github-io-mohamed-rehab',
-        'd-wondershare',
+        // ── tenant الجديد الظاهر في Firestore (إدارة-الدروس-نظام-إدارة-الدروس-المدير-العام) ──
+        'إدارة-الدروس-نظام-إدارة-الدروس-المدير-العام',
+        // ── variants محتملة لاسم البرنامج الافتراضي ──
+        'نظام-إدارة-الدروس-نظام-إدارة-الدروس-المدير-العام',
+        'نظام-إدارة-الدروس',
+        'إدارة-الدروس',
+        // ── fallback عام ──
         'default',
-        'نظام-إدارة-الدروس'
     ];
 
     try {

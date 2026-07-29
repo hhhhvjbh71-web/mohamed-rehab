@@ -2,7 +2,7 @@
 //  sw.js  —  Service Worker مع دعم PWA والملاكمة الأوفلاين
 // ============================================================
 
-const CACHE_VERSION = 'lesson-manager-v16-pwa-subpath-fix';
+const CACHE_VERSION = 'lesson-manager-v17-domain-fix';
 
 const APP_SHELL = [
   './',
