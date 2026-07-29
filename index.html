@@ -8,7 +8,19 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="إدارة الدروس">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="app-icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <title>نظام إدارة الدروس</title>
+    <script>
+      // الالتقاط المبكر لحدث تثبيت الـ PWA لضمان عدم ضياعه أثناء تحميل الصفحة
+      window._deferredPrompt = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        window._deferredPrompt = e;
+        if (typeof _showInstallBtn === 'function') _showInstallBtn();
+      });
+    </script>
     <style>
         .search-results-dropdown {
             position: absolute;
@@ -3858,7 +3870,7 @@
 
     <script>
     /* ── PWA Install Logic ─── */
-    let _deferredPrompt = null;
+    let _deferredPrompt = window._deferredPrompt || null;
 
     // هل التطبيق مثبَّت ويعمل بالفعل كتطبيق مستقل (standalone)؟
     function _isRunningAsInstalledPWA() {
@@ -3878,40 +3890,57 @@
     // المتصفح أعلن دعمه لإظهار مطالبة التثبيت الأصلية (Chrome/Edge/Android)
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
+      window._deferredPrompt = e;
       _deferredPrompt = e;
       _showInstallBtn();
     });
 
     window.addEventListener('appinstalled', () => {
+      window._deferredPrompt = null;
       _deferredPrompt = null;
       _hideInstallBtn();
     });
 
-    // إظهار الزر افتراضياً بمجرد جاهزية الصفحة طالما التطبيق غير مثبَّت بالفعل،
-    // حتى في المتصفحات التي لا تُطلق beforeinstallprompt (مثل Safari) — بحيث
-    // يظل الزر متاحاً دائماً ويعرض تعليمات التثبيت اليدوي عند الحاجة.
+    // إظهار الزر بمجرد جاهزية الصفحة طالما التطبيق غير مثبَّت بالفعل
     document.addEventListener('DOMContentLoaded', () => {
       if (!_isRunningAsInstalledPWA()) _showInstallBtn();
     });
 
     async function triggerPWAInstall() {
       if (_isRunningAsInstalledPWA()) {
-        alert('التطبيق مثبت بالفعل! ✅');
+        if (typeof showNotification === 'function') {
+          showNotification('التطبيق مثبت بالفعل ويعمل كتطبيق مستقل ✅', 'success');
+        } else {
+          alert('التطبيق مثبت بالفعل! ✅');
+        }
         _hideInstallBtn();
         return;
       }
 
-      if (!_deferredPrompt) {
-        alert('لتثبيت التطبيق يدوياً:\n\nأندرويد Chrome: اضغط ⋮ → "إضافة إلى الشاشة الرئيسية"\nآيفون Safari: اضغط Share → "Add to Home Screen"\nكمبيوتر Chrome/Edge: اضغط أيقونة التثبيت ⊕ في شريط العنوان، أو ⋮ → "تثبيت التطبيق"');
+      const promptEvent = window._deferredPrompt || _deferredPrompt;
+
+      if (!promptEvent) {
+        alert('لتثبيت التطبيق يدوياً:\n\n• أندرويد Chrome: اضغط قائمة المتصفح (⋮) ثم اختر "إضافة إلى الشاشة الرئيسية" أو "تثبيت التطبيق"\n• آيفون Safari: اضغط زر المشاركة (Share) ثم اختر "إضافة إلى الشاشة الرئيسية" (Add to Home Screen)\n• كمبيوتر Chrome/Edge: اضغط أيقونة التثبيت (⊕) في شريط العنوان بالأعلى.');
         return;
       }
 
-      _deferredPrompt.prompt();
-      const { outcome } = await _deferredPrompt.userChoice;
-      _deferredPrompt = null;
-      if (outcome === 'accepted') _hideInstallBtn();
+      try {
+        promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
+        window._deferredPrompt = null;
+        _deferredPrompt = null;
+        if (outcome === 'accepted') {
+          _hideInstallBtn();
+          if (typeof showNotification === 'function') {
+            showNotification('تم تثبيت التطبيق بنجاح! 🎉', 'success');
+          }
+        }
+      } catch (err) {
+        console.error('PWA Install Prompt Error:', err);
+      }
     }
 
+    window._showInstallBtn = _showInstallBtn;
     window.triggerPWAInstall = triggerPWAInstall;
     </script>
 

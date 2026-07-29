@@ -9,7 +9,7 @@
 //    5. أو: يُطبَّق تلقائياً بعد 10 ثوانٍ بدون تدخّل
 // ============================================================
 
-const CACHE_VERSION = 'lesson-manager-v14-local-tenant-sync';
+const CACHE_VERSION = 'lesson-manager-v15-pwa-offline-fix';
 
 const APP_SHELL = [
   './',
@@ -19,6 +19,8 @@ const APP_SHELL = [
   './app.js',
   './firebase-app-compat.js',
   './firebase-firestore-compat.js',
+  './data.js',
+  './booking-groups.js',
   './archive_functions.js',
   './transfer-student.js',
   './receive-exams.js',
