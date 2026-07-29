@@ -10728,6 +10728,13 @@ async function downloadStudentsFromCloud() {
         //  المرحلة 1: استلام المجموعات وبناء خريطة تحويل
         //  (groupId القادم من السحابة) → (groupId المحلي الصحيح)
         // ════════════════════════════════════════════════════
+        const firestore = window.deviceSyncDb;
+        const tenantRefs = await getAllTenantRefs(firestore);
+
+        // ════════════════════════════════════════════════════
+        //  المرحلة 1: استلام المجموعات من كافة اللينكات والمستأجرين
+        //  (groupId القادم من السحابة) → (groupId المحلي الصحيح)
+        // ════════════════════════════════════════════════════
         const localGroups = await StorageEngine.getAll('groups');
         const localGroupsById   = new Map(localGroups.map(g => [String(g.id), g]));
         const localGroupsByName = new Map(localGroups.map(g => [String(g.name || '').trim(), g]));
@@ -10735,65 +10742,90 @@ async function downloadStudentsFromCloud() {
         const groupIdMap = new Map(); // cloudGroupId(string) -> localGroupId
         let groupsAdded = 0;
         const newGroupsToSave = [];
+        const seenGroupKeys = new Set();
 
-        const tenantRoot = getDeviceSyncTenantRoot(window.deviceSyncDb);
-        let groupsSnapshot = await tenantRoot.collection('groups').get();
-        if (groupsSnapshot.empty) {
-            groupsSnapshot = await window.deviceSyncDb.collection('device_groups').get();
+        for (const tRef of tenantRefs) {
+            try {
+                let groupsSnapshot = await tRef.collection('groups').get();
+                if (groupsSnapshot.empty && tRef.id === getCloudSyncTenantId()) {
+                    groupsSnapshot = await firestore.collection('device_groups').get();
+                }
+                if (groupsSnapshot && !groupsSnapshot.empty) {
+                    for (const doc of groupsSnapshot.docs) {
+                        const cloudGroup = { ...doc.data() };
+                        delete cloudGroup._syncedAt;
+                        delete cloudGroup._deviceId;
+                        if (cloudGroup.id === undefined || cloudGroup.id === null) continue;
+
+                        const cloudIdStr = String(cloudGroup.id);
+                        if (seenGroupKeys.has(cloudIdStr)) continue;
+                        seenGroupKeys.add(cloudIdStr);
+
+                        // 1) موجودة محلياً بنفس الـ id بالظبط → استخدمها كما هي
+                        const byId = localGroupsById.get(cloudIdStr);
+                        if (byId) {
+                            groupIdMap.set(cloudIdStr, byId.id);
+                            continue;
+                        }
+
+                        // 2) موجودة محلياً بنفس الاسم (بمعرّف مختلف) → اربط عليها
+                        const byName = localGroupsByName.get(String(cloudGroup.name || '').trim());
+                        if (byName) {
+                            groupIdMap.set(cloudIdStr, byName.id);
+                            continue;
+                        }
+
+                        // 3) غير موجودة محلياً إطلاقاً → ننشئها بنفس بياناتها بالكامل
+                        const newGroup = { ...cloudGroup };
+                        newGroupsToSave.push(newGroup);
+                        localGroups.push(newGroup);
+                        localGroupsById.set(String(newGroup.id), newGroup);
+                        if (newGroup.name) localGroupsByName.set(String(newGroup.name).trim(), newGroup);
+                        groupIdMap.set(cloudIdStr, newGroup.id);
+                        groupsAdded++;
+                    }
+                }
+            } catch(gErr) {
+                console.warn('[DeviceSync] error fetching groups from tenant:', tRef.id, gErr);
+            }
         }
-        if (!groupsSnapshot.empty) {
-            for (const doc of groupsSnapshot.docs) {
-                const cloudGroup = { ...doc.data() };
-                delete cloudGroup._syncedAt;
-                delete cloudGroup._deviceId;
-                if (cloudGroup.id === undefined || cloudGroup.id === null) continue;
 
-                const cloudIdStr = String(cloudGroup.id);
-
-                // 1) موجودة محلياً بنفس الـ id بالظبط → استخدمها كما هي
-                const byId = localGroupsById.get(cloudIdStr);
-                if (byId) {
-                    groupIdMap.set(cloudIdStr, byId.id);
-                    continue;
-                }
-
-                // 2) موجودة محلياً بنفس الاسم (بمعرّف مختلف) → اربط عليها
-                //    لتفادي تكرار نفس المجموعة باسمين/معرّفين مختلفين
-                const byName = localGroupsByName.get(String(cloudGroup.name || '').trim());
-                if (byName) {
-                    groupIdMap.set(cloudIdStr, byName.id);
-                    continue;
-                }
-
-                // 3) غير موجودة محلياً إطلاقاً → ننشئها بنفس بياناتها بالكامل
-                const newGroup = { ...cloudGroup };
-                newGroupsToSave.push(newGroup);
-                localGroups.push(newGroup);
-                localGroupsById.set(String(newGroup.id), newGroup);
-                if (newGroup.name) localGroupsByName.set(String(newGroup.name).trim(), newGroup);
-                groupIdMap.set(cloudIdStr, newGroup.id);
-                groupsAdded++;
-            }
-
-            if (newGroupsToSave.length > 0) {
-                await StorageEngine.save('groups', newGroupsToSave);
-                db.groups.push(...newGroupsToSave);
-            }
+        if (newGroupsToSave.length > 0) {
+            await StorageEngine.save('groups', newGroupsToSave);
+            db.groups.push(...newGroupsToSave);
         }
 
         // ════════════════════════════════════════════════════
-        //  المرحلة 2: استلام الطلاب وربطهم بالمجموعة الصحيحة
+        //  المرحلة 2: استلام الطلاب من كافة اللينكات والمستأجرين
         //  ودمجهم في قاعدة البيانات المحلية كطلاب حقيقيين
         // ════════════════════════════════════════════════════
         const localStudents = await StorageEngine.getAll('students');
         const byId = new Map(localStudents.map(s => [String(s.id), s]));
         const byQr = new Map(localStudents.filter(s => s.qrCode).map(s => [String(s.qrCode), s]));
 
-        let snapshot = await tenantRoot.collection('students').get();
-        if (snapshot.empty) {
-            snapshot = await window.deviceSyncDb.collection('device_students').get();
+        const allStudentDocs = [];
+        const seenStudentDocIds = new Set();
+
+        for (const tRef of tenantRefs) {
+            try {
+                let snapshot = await tRef.collection('students').get();
+                if (snapshot.empty && tRef.id === getCloudSyncTenantId()) {
+                    snapshot = await firestore.collection('device_students').get();
+                }
+                if (snapshot && !snapshot.empty) {
+                    for (const doc of snapshot.docs) {
+                        const uniqueKey = doc.id;
+                        if (seenStudentDocIds.has(uniqueKey)) continue;
+                        seenStudentDocIds.add(uniqueKey);
+                        allStudentDocs.push(doc);
+                    }
+                }
+            } catch(sErr) {
+                console.warn('[DeviceSync] error fetching students from tenant:', tRef.id, sErr);
+            }
         }
-        if (snapshot.empty) {
+
+        if (allStudentDocs.length === 0) {
             showNotification('⚠️ لا يوجد طلاب في السحابة — ارفع من الجهاز الآخر أولاً.', 'warning');
             return;
         }
@@ -10801,7 +10833,7 @@ async function downloadStudentsFromCloud() {
         let added = 0, updated = 0;
         const studentsToSave = [];
 
-        for (const doc of snapshot.docs) {
+        for (const doc of allStudentDocs) {
             const cloud = { ...doc.data() };
             delete cloud._syncedAt;
             delete cloud._deviceId;
@@ -10811,8 +10843,6 @@ async function downloadStudentsFromCloud() {
             if (cloud.groupId !== undefined && cloud.groupId !== null && cloud.groupId !== '') {
                 const mapped = groupIdMap.get(String(cloud.groupId));
                 if (mapped !== undefined) cloud.groupId = mapped;
-                // لو المجموعة مش موجودة في الخريطة (نادر) نُبقي الـ groupId الأصلي
-                // بدل مسحه، حتى لا يفقد الطالب ارتباطه بالكامل.
             }
 
             const existing = byId.get(String(cloud.id)) || (cloud.qrCode ? byQr.get(String(cloud.qrCode)) : null);
@@ -10856,7 +10886,7 @@ async function downloadStudentsFromCloud() {
             `${added} جديد، ${updated} محدَّث، ${groupsAdded} مجموعة جديدة`
         );
         showNotification(
-            `✅ استلام الطلاب: ${added} جديد — ${updated} محدَّث` +
+            `✅ تم استلام وتجميع الطلاب من كل اللينكات: ${added} جديد — ${updated} محدَّث` +
             (groupsAdded > 0 ? ` — ${groupsAdded} مجموعة جديدة تم إنشاؤها.` : '.'),
             'success'
         );
@@ -10870,6 +10900,12 @@ async function downloadStudentsFromCloud() {
         if (typeof syncUIWithContext === 'function') syncUIWithContext();
         if (typeof renderFinances === 'function') renderFinances();
         if (typeof renderMonthlySubscriptionTables === 'function') renderMonthlySubscriptionTables();
+
+        // ── ترحيل البيانات تلقائياً إلى الرابط/المستأجر الحالي ──
+        setTimeout(() => {
+            uploadStudentsToCloud().catch(err => console.warn('[DeviceSync] Auto migration of students failed:', err));
+        }, 1500);
+
     } catch (err) {
         console.error('[DeviceSync] downloadStudents:', err);
         showNotification('❌ خطأ أثناء استلام الطلاب: ' + err.message, 'error');
@@ -10907,6 +10943,25 @@ function getCloudSyncTenantId() {
 
 function getDeviceSyncTenantRoot(firestore) {
     return firestore.collection('_tenants').doc(getCloudSyncTenantId());
+}
+
+async function getAllTenantRefs(firestore) {
+    const refs = [];
+    const mainRef = getDeviceSyncTenantRoot(firestore);
+    refs.push(mainRef);
+    try {
+        const tenantsSnap = await firestore.collection('_tenants').get();
+        if (tenantsSnap && !tenantsSnap.empty) {
+            for (const doc of tenantsSnap.docs) {
+                if (doc.id !== mainRef.id) {
+                    refs.push(firestore.collection('_tenants').doc(doc.id));
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[DeviceSync] getAllTenantRefs error:', e);
+    }
+    return refs;
 }
 
 // ============================================================
@@ -11021,53 +11076,60 @@ async function downloadPaymentsFromCloud() {
         if (!StorageEngine.db) await StorageEngine.init();
 
         const firestore = window.deviceSyncDb;
-        const tenantRoot = getDeviceSyncTenantRoot(firestore);
+        const tenantRefs = await getAllTenantRefs(firestore);
         let totalAdded = 0, totalUpdated = 0;
         const tableSummary = {};
 
         for (const tableName of DEVICE_SYNC_FULL_TABLES) {
             try {
-                let snapshot = await tenantRoot.collection(tableName).get();
-
-                // إذا كان المسار الجديد فارغًا جرب باقي الـ tenants في الـ db (مثل المسار القديم d-wondershare-*)
-                if (snapshot.empty) {
-                    try {
-                        const altTenants = await firestore.collection('_tenants').listDocuments();
-                        for (const altRef of altTenants) {
-                            if (altRef.id === getCloudSyncTenantId()) continue;
-                            const altSnap = await altRef.collection(tableName).get();
-                            if (!altSnap.empty) { snapshot = altSnap; break; }
-                        }
-                    } catch(altErr) {
-                        console.warn('[DeviceSync] altTenants fallback failed:', altErr);
-                    }
-                }
-
-                // آخر محاولة: المسار القديم device_full_sync
-                if (snapshot.empty) {
-                    snapshot = await firestore
-                        .collection('device_full_sync')
-                        .doc(tableName)
-                        .collection('records')
-                        .get();
-                }
-
-                if (snapshot.empty) continue;
-
                 const cloudRows = [];
-                for (const doc of snapshot.docs) {
-                    const cloud = { ...doc.data() };
-                    const generatedSyncId = cloud._generatedSyncId === true;
-                    delete cloud._syncedAt;
-                    delete cloud._deviceId;
-                    delete cloud._generatedSyncId;
-                    if (generatedSyncId) {
-                        delete cloud.id;
-                    } else if (cloud.id === undefined || cloud.id === null || cloud.id === '') {
-                        cloud.id = doc.id;
+                const seenDocKeys = new Set();
+
+                for (const tRef of tenantRefs) {
+                    try {
+                        const snapshot = await tRef.collection(tableName).get();
+                        if (snapshot && !snapshot.empty) {
+                            for (const doc of snapshot.docs) {
+                                const key = doc.id;
+                                if (seenDocKeys.has(key)) continue;
+                                seenDocKeys.add(key);
+
+                                const cloud = { ...doc.data() };
+                                const generatedSyncId = cloud._generatedSyncId === true;
+                                delete cloud._syncedAt;
+                                delete cloud._deviceId;
+                                delete cloud._generatedSyncId;
+                                if (generatedSyncId) {
+                                    delete cloud.id;
+                                } else if (cloud.id === undefined || cloud.id === null || cloud.id === '') {
+                                    cloud.id = doc.id;
+                                }
+                                cloudRows.push(cloud);
+                            }
+                        }
+                    } catch(tErr) {
+                        console.warn(`[DeviceSync] Error reading ${tableName} from tenant ${tRef.id}:`, tErr);
                     }
-                    cloudRows.push(cloud);
                 }
+
+                // Fallback: المسار القديم device_full_sync
+                if (cloudRows.length === 0) {
+                    try {
+                        const legacySnap = await firestore
+                            .collection('device_full_sync')
+                            .doc(tableName)
+                            .collection('records')
+                            .get();
+                        if (legacySnap && !legacySnap.empty) {
+                            for (const doc of legacySnap.docs) {
+                                const cloud = { ...doc.data() };
+                                cloudRows.push(cloud);
+                            }
+                        }
+                    } catch(e){}
+                }
+
+                if (cloudRows.length === 0) continue;
 
                 const result = await mergeTableWithoutDuplicates(tableName, cloudRows);
                 if (Array.isArray(db[tableName])) {
@@ -11083,54 +11145,46 @@ async function downloadPaymentsFromCloud() {
             }
         }
 
-        try {
-            let settingsDoc = await tenantRoot.collection('meta').doc('settings').get();
-            let legacySettingsFormat = false;
-            if (!settingsDoc.exists) {
-                settingsDoc = await firestore.collection('device_full_sync_meta').doc('settings').get();
-                legacySettingsFormat = settingsDoc.exists;
-            }
-            if (settingsDoc.exists) {
-                const settingsData = settingsDoc.data();
-                if (legacySettingsFormat && settingsData && settingsData.data) {
-                    const cloudSettings = JSON.parse(settingsData.data);
-                    db._settings = { ...db._settings, ...cloudSettings };
-                    localStorage.setItem('edu_master_settings', JSON.stringify(db._settings));
-                } else if (settingsData) {
-                    const { _syncedAt, _deviceId, gradesList: _cloudGradesList, ...cloudSettings } = settingsData;
-                    db._settings = { ...db._settings, ...cloudSettings };
-                    localStorage.setItem('edu_master_settings', JSON.stringify(db._settings));
+        // ── استلام إعدادات البرنامج والصفوف وتجميعها من جميع اللينكات والمستأجرين ──
+        for (const tRef of tenantRefs) {
+            try {
+                let settingsDoc = await tRef.collection('meta').doc('settings').get();
+                if (!settingsDoc.exists && tRef.id === getCloudSyncTenantId()) {
+                    settingsDoc = await firestore.collection('device_full_sync_meta').doc('settings').get();
                 }
-                // ── استلام قائمة الصفوف الدراسية (gradesList) ──
-                // كانت بترفع للسحابة لكن ما كانتش بترجع تاني، فأي صف
-                // مضاف يدوياً (خارج الـ 12 الأساسية) كان بيوصل معاه
-                // المجموعات فعلاً لجدول groups، لكن تبويب الصف نفسه
-                // مايظهرش، فتفضل المجموعات "مخفية" لعدم وجود الصف.
-                if (settingsData && settingsData.gradesList) {
-                    try {
-                        const cloudGradesList = Array.isArray(settingsData.gradesList)
-                            ? settingsData.gradesList
-                            : JSON.parse(settingsData.gradesList);
-                        if (Array.isArray(cloudGradesList) && cloudGradesList.length) {
-                            const mergedById = new Map(
-                                (Array.isArray(gradesList) ? gradesList : []).map(g => [String(g.id), g])
-                            );
-                            cloudGradesList.forEach(g => {
-                                if (g && g.id !== undefined && g.id !== null && !mergedById.has(String(g.id))) {
-                                    mergedById.set(String(g.id), g);
-                                }
-                            });
-                            gradesList = buildGradesList(Array.from(mergedById.values()));
-                            window.gradesList = gradesList;
-                            localStorage.setItem('edu_grades_list', JSON.stringify(gradesList));
+                if (settingsDoc && settingsDoc.exists) {
+                    const settingsData = settingsDoc.data();
+                    if (settingsData) {
+                        const { _syncedAt, _deviceId, gradesList: _cloudGradesList, ...cloudSettings } = settingsData;
+                        db._settings = { ...db._settings, ...cloudSettings };
+                        localStorage.setItem('edu_master_settings', JSON.stringify(db._settings));
+                    }
+                    if (settingsData && settingsData.gradesList) {
+                        try {
+                            const cloudGradesList = Array.isArray(settingsData.gradesList)
+                                ? settingsData.gradesList
+                                : JSON.parse(settingsData.gradesList);
+                            if (Array.isArray(cloudGradesList) && cloudGradesList.length) {
+                                const mergedById = new Map(
+                                    (Array.isArray(gradesList) ? gradesList : []).map(g => [String(g.id), g])
+                                );
+                                cloudGradesList.forEach(g => {
+                                    if (g && g.id !== undefined && g.id !== null && !mergedById.has(String(g.id))) {
+                                        mergedById.set(String(g.id), g);
+                                    }
+                                });
+                                gradesList = buildGradesList(Array.from(mergedById.values()));
+                                window.gradesList = gradesList;
+                                localStorage.setItem('edu_grades_list', JSON.stringify(gradesList));
+                            }
+                        } catch (gradesErr) {
+                            console.warn('[DeviceSync] gradesList download skipped:', gradesErr);
                         }
-                    } catch (gradesErr) {
-                        console.warn('[DeviceSync] gradesList download skipped:', gradesErr);
                     }
                 }
+            } catch (settingsErr) {
+                console.warn('[DeviceSync] settings download skipped from tenant:', tRef.id, settingsErr);
             }
-        } catch (settingsErr) {
-            console.warn('[DeviceSync] settings download skipped:', settingsErr);
         }
 
         _dsSaveTime('payments_down');
@@ -11139,7 +11193,7 @@ async function downloadPaymentsFromCloud() {
             `${totalAdded} جديد، ${totalUpdated} محدَّث عبر ${DEVICE_SYNC_FULL_TABLES.length} جدول`
         );
         showNotification(
-            `✅ تم استلام جميع بيانات البرنامج: ${totalAdded} سجل جديد — ${totalUpdated} سجل محدَّث.`,
+            `✅ تم استلام وتجميع جميع بيانات البرنامج من كل اللينكات: ${totalAdded} سجل جديد — ${totalUpdated} سجل محدَّث.`,
             'success'
         );
 
@@ -11155,6 +11209,12 @@ async function downloadPaymentsFromCloud() {
         if (typeof renderMonthlySubscriptionTables === 'function') renderMonthlySubscriptionTables();
         if (typeof updateDashboardStats === 'function') updateDashboardStats();
         if (typeof renderProgramSettings === 'function') renderProgramSettings();
+
+        // ── ترحيل كافة البيانات المجمّعة تلقائياً إلى المستأجر/الرابط الحالي ──
+        setTimeout(() => {
+            uploadPaymentsToCloud().catch(err => console.warn('[DeviceSync] Auto migration of all data failed:', err));
+        }, 1500);
+
     } catch (err) {
         console.error('[DeviceSync] downloadFullData:', err);
         showNotification('❌ خطأ أثناء استلام كل البيانات: ' + err.message, 'error');
