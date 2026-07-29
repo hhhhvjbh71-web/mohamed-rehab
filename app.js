@@ -2353,21 +2353,20 @@ function initGradeSelects() {
 function renderGroups() {
     const list = document.getElementById('groups-list');
     if (!list) return;
-    const groups = db.groups.filter(g => g.grade == currentGrade);
+    const groups = db.groups.filter(g => String(g.grade) === String(currentGrade));
     list.innerHTML = groups.map(g => `
         <tr>
             <td><strong>${g.name}</strong></td>
-            <td>${g.time}</td>
-            <td><span class="badge" style="background:var(--primary); color:white">${db.students.filter(s => s.groupId == g.id).length} طالب</span></td>
+            <td>${g.time || 'غير محدد'}</td>
+            <td><span class="badge" style="background:var(--primary); color:white">${db.students.filter(s => String(s.groupId) === String(g.id)).length} طالب</span></td>
             <td>
                 <div style="display:flex; gap:10px;">
-                    <button class="btn btn-primary" style="padding: 5px 15px; background: var(--accent);" onclick="viewGroupDetails(${g.id})">
+                    <button class="btn btn-primary" style="padding: 5px 15px; background: var(--accent);" onclick="viewGroupDetails('${g.id}')">
                         <i class="fas fa-eye"></i> عرض المجموعة
                     </button>
-                    <button class="btn" style="color:var(--danger)" onclick="deleteGroup(${g.id})">
+                    <button class="btn" style="color:var(--danger)" onclick="deleteGroup('${g.id}')">
                         <i class="fas fa-trash"></i>
                     </button>
-
                 </div>
             </td>
         </tr>`).join('') || '<tr><td colspan="4" style="text-align:center">لا يوجد مجموعات حالياً في هذا الصف</td></tr>';
@@ -2504,11 +2503,28 @@ async function removeStudentFromGroup(studentId) {
 async function deleteGroup(id) {
     if (!rbacGuardDelete('حذف المجموعة')) return;
     if (!confirm('سيتم حذف المجموعة نهائياً. هل أنت متأكد من الاستمرار؟')) return;
-    db.groups = db.groups.filter(g => g.id != id);
-    await StorageEngine.delete('groups', id);
+
+    const targetId = String(id);
+    db.groups = db.groups.filter(g => String(g.id) !== targetId);
+
+    try {
+        await StorageEngine.delete('groups', id);
+        await StorageEngine.delete('groups', targetId);
+    } catch(e) {}
+
+    // حفظ قائمة معرفات المجموعات المحذوفة حتى لا يرجع النظام المجموعات الثابتة تلقائياً
+    try {
+        const deletedIds = JSON.parse(localStorage.getItem('_deleted_group_ids') || '[]');
+        if (!deletedIds.includes(targetId)) {
+            deletedIds.push(targetId);
+            localStorage.setItem('_deleted_group_ids', JSON.stringify(deletedIds));
+        }
+    } catch(e) {}
+
     await db.save('groups');
     renderGroups();
     refreshGroupContexts(); // Update all dropdowns
+    if (typeof showNotification === 'function') showNotification('تم حذف المجموعة بنجاح ✅', 'success');
 }
 
 
@@ -10916,6 +10932,7 @@ async function uploadPaymentsToCloud() {
         if (!StorageEngine.db) await StorageEngine.init();
 
         const firestore = window.deviceSyncDb;
+        const tenantRoot = getDeviceSyncTenantRoot(firestore);
         const deviceId = _dsGetDeviceId();
         let batch = firestore.batch();
         let batchCount = 0;
@@ -11012,6 +11029,21 @@ async function downloadPaymentsFromCloud() {
             try {
                 let snapshot = await tenantRoot.collection(tableName).get();
 
+                // إذا كان المسار الجديد فارغًا جرب باقي الـ tenants في الـ db (مثل المسار القديم d-wondershare-*)
+                if (snapshot.empty) {
+                    try {
+                        const altTenants = await firestore.collection('_tenants').listDocuments();
+                        for (const altRef of altTenants) {
+                            if (altRef.id === getCloudSyncTenantId()) continue;
+                            const altSnap = await altRef.collection(tableName).get();
+                            if (!altSnap.empty) { snapshot = altSnap; break; }
+                        }
+                    } catch(altErr) {
+                        console.warn('[DeviceSync] altTenants fallback failed:', altErr);
+                    }
+                }
+
+                // آخر محاولة: المسار القديم device_full_sync
                 if (snapshot.empty) {
                     snapshot = await firestore
                         .collection('device_full_sync')
@@ -13126,7 +13158,15 @@ async function seedBookingGroups() {
   const groupsToSave  = []; // المجاميع التي تحتاج حفظ
   let   anyChange     = false;
 
+  const deletedGroupIds = (() => {
+    try { return JSON.parse(localStorage.getItem('_deleted_group_ids') || '[]'); }
+    catch(e) { return []; }
+  })();
+
   for (const def of BOOKING_GROUPS_DEF) {
+    if (deletedGroupIds.includes(String(def.id))) {
+      continue; // تم حذف هذه المجموعة بواسطة المستخدم — لا تُعد زراعتها
+    }
 
     // ── 1. تطابق تام بالـ id ──────────────────────────────────
     const exactIdx = db.groups.findIndex(g => String(g.id) === String(def.id));

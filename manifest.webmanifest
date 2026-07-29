@@ -9,6 +9,7 @@
   "theme_color": "#4f46e5",
   "lang": "ar",
   "dir": "rtl",
+  "id": "./",
   "scope": "./",
   "prefer_related_applications": false,
   "icons": [
@@ -43,6 +44,13 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
+      "label": "الصفحة الرئيسية"
+    },
+    {
+      "src": "./app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
       "label": "الصفحة الرئيسية"
     }
   ],

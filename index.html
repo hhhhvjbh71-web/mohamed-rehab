@@ -3906,6 +3906,63 @@
       if (!_isRunningAsInstalledPWA()) _showInstallBtn();
     });
 
+    function showInstallGuideModal() {
+      const existing = document.getElementById('pwa-guide-modal');
+      if (existing) existing.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'pwa-guide-modal';
+      modal.innerHTML = `
+        <div style="position: fixed; inset: 0; z-index: 999999; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 20px; font-family: 'Outfit', 'Segoe UI', sans-serif;" onclick="if(event.target===this) this.remove()">
+          <div style="background: #1e293b; color: white; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; max-width: 520px; width: 100%; padding: 26px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); direction: rtl; position: relative; animation: modalFadeIn 0.3s ease-out;">
+            <style>
+              @keyframes modalFadeIn {
+                from { opacity: 0; transform: scale(0.95) translateY(10px); }
+                to   { opacity: 1; transform: scale(1) translateY(0); }
+              }
+            </style>
+            <button onclick="document.getElementById('pwa-guide-modal').remove()" style="position: absolute; top: 16px; left: 16px; background: rgba(255,255,255,0.1); border: none; color: #94a3b8; border-radius: 50%; width: 34px; height: 34px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center;">✕</button>
+            
+            <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 18px;">
+              <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4f46e5, #7c3aed); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow: 0 8px 20px rgba(79,70,229,0.4);">📲</div>
+              <div>
+                <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: #f8fafc;">تثبيت التطبيق على جهازك</h3>
+                <p style="margin: 3px 0 0; font-size: 0.82rem; color: #94a3b8;">خطوات بسيطة لتثبيت التطبيق وتشغيله بدون إنترنت</p>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 12px; background: #0f172a; padding: 16px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 20px;">
+              <div style="display: flex; align-items: flex-start; gap: 10px;">
+                <span style="background: rgba(79,70,229,0.25); color: #818cf8; font-weight: 800; border-radius: 8px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.85rem;">1</span>
+                <div>
+                  <strong style="color: #60a5fa; font-size: 0.92rem;">📱 أندرويد (Chrome):</strong>
+                  <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 2px;">اضغط قائمة المتصفح <b style="color:#fbbf24;">(⋮)</b> بالأعلى ➔ اختر <b style="color:#34d399;">"إضافة إلى الشاشة الرئيسية"</b> أو <b style="color:#34d399;">"تثبيت التطبيق"</b>.</div>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
+                <span style="background: rgba(79,70,229,0.25); color: #818cf8; font-weight: 800; border-radius: 8px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.85rem;">2</span>
+                <div>
+                  <strong style="color: #f472b6; font-size: 0.92rem;">🍏 آيفون / آيباد (Safari):</strong>
+                  <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 2px;">اضغط زر المشاركة أسفل الشاشة <b style="color:#fbbf24;">(Share ⎋)</b> ➔ اختر <b style="color:#34d399;">"إضافة إلى الشاشة الرئيسية" (Add to Home Screen)</b>.</div>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
+                <span style="background: rgba(79,70,229,0.25); color: #818cf8; font-weight: 800; border-radius: 8px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.85rem;">3</span>
+                <div>
+                  <strong style="color: #34d399; font-size: 0.92rem;">💻 الكمبيوتر (Chrome / Edge):</strong>
+                  <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 2px;">اضغط أيقونة التثبيت <b style="color:#fbbf24;">(⊕)</b> في شريط العنوان بالأعلى بجوار الرابط.</div>
+                </div>
+              </div>
+            </div>
+
+            <button onclick="document.getElementById('pwa-guide-modal').remove()" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; border: none; padding: 12px; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 0.95rem; width: 100%; box-shadow: 0 4px 14px rgba(79,70,229,0.35);">فهمت ذلك 👍</button>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+
     async function triggerPWAInstall() {
       if (_isRunningAsInstalledPWA()) {
         if (typeof showNotification === 'function') {
@@ -3920,7 +3977,7 @@
       const promptEvent = window._deferredPrompt || _deferredPrompt;
 
       if (!promptEvent) {
-        alert('لتثبيت التطبيق يدوياً:\n\n• أندرويد Chrome: اضغط قائمة المتصفح (⋮) ثم اختر "إضافة إلى الشاشة الرئيسية" أو "تثبيت التطبيق"\n• آيفون Safari: اضغط زر المشاركة (Share) ثم اختر "إضافة إلى الشاشة الرئيسية" (Add to Home Screen)\n• كمبيوتر Chrome/Edge: اضغط أيقونة التثبيت (⊕) في شريط العنوان بالأعلى.');
+        showInstallGuideModal();
         return;
       }
 
@@ -3937,6 +3994,7 @@
         }
       } catch (err) {
         console.error('PWA Install Prompt Error:', err);
+        showInstallGuideModal();
       }
     }
 
