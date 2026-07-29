@@ -10647,6 +10647,15 @@ async function uploadStudentsToCloud() {
         let batchCount = 0;
         let total = 0;
 
+        // ── توثيق مستند الـ tenant الأصلي في مجموعة _tenants ليصبح ظاهراً ومفهرساً ──
+        batch.set(tenantRoot, {
+            _updatedAt: new Date().toISOString(),
+            _tenantId: getCloudSyncTenantId(),
+            _appVersion: 'v16',
+            _url: typeof location !== 'undefined' ? location.href : ''
+        }, { merge: true });
+        batchCount++;
+
         // ── رفع المجموعات أولاً (بكامل بياناتها) ──
         for (const group of groupsToUpload) {
             if (group.id === undefined || group.id === null) continue;
@@ -10930,9 +10939,13 @@ const DEVICE_SYNC_FULL_TABLES = [
 function getCloudSyncTenantId() {
     const profile = (typeof getProgramProfile === 'function') ? getProgramProfile() : {};
     const explicit = db?._settings?.cloudSyncTenantId || profile.cloudSyncTenantId;
-    const source = explicit || [profile.appName, profile.centerName, profile.teacherName]
+    const profileName = [profile.appName, profile.centerName, profile.teacherName]
         .filter(Boolean)
-        .join('-') || 'default';
+        .join('-');
+    const hostPathFallback = (typeof location !== 'undefined' && location.hostname)
+        ? (location.hostname + '-' + (location.pathname || '').replace(/\/[^/]*$/, ''))
+        : '';
+    const source = explicit || profileName || hostPathFallback || 'default';
     return String(source)
         .trim()
         .toLowerCase()
@@ -10946,22 +10959,52 @@ function getDeviceSyncTenantRoot(firestore) {
 }
 
 async function getAllTenantRefs(firestore) {
-    const refs = [];
-    const mainRef = getDeviceSyncTenantRoot(firestore);
-    refs.push(mainRef);
+    const refsMap = new Map();
+    const mainTenantId = getCloudSyncTenantId();
+    refsMap.set(mainTenantId, firestore.collection('_tenants').doc(mainTenantId));
+
+    // قائمة المستأجرين القدامى المعروفين والافتراضيين (بما فيها المستأجر القديم الظاهر في الصورة)
+    const candidateTenantIds = [
+        'd-wondershare-d9-85-d8-ad-d9-85-d8-af-d8-a8-d9-83-d8-b1',
+        'd-wondershare-d9-85-d8-ad-d9-85-d8-af',
+        'ddfvdjbdksv-spec-github-io-mohamed-rehab',
+        'hhhhvjbh71-web-github-io-mohamed-rehab',
+        'd-wondershare',
+        'default',
+        'نظام-إدارة-الدروس'
+    ];
+
     try {
         const tenantsSnap = await firestore.collection('_tenants').get();
         if (tenantsSnap && !tenantsSnap.empty) {
             for (const doc of tenantsSnap.docs) {
-                if (doc.id !== mainRef.id) {
-                    refs.push(firestore.collection('_tenants').doc(doc.id));
-                }
+                if (doc.id) candidateTenantIds.push(doc.id);
             }
         }
     } catch (e) {
-        console.warn('[DeviceSync] getAllTenantRefs error:', e);
+        console.warn('[DeviceSync] getAllTenantRefs query error:', e);
     }
-    return refs;
+
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && (k.includes('tenant') || k.includes('cloud_sync'))) {
+                const val = localStorage.getItem(k);
+                if (val && typeof val === 'string' && val.length < 90) {
+                    candidateTenantIds.push(val);
+                }
+            }
+        }
+    } catch(e){}
+
+    for (const tid of candidateTenantIds) {
+        const cleanTid = String(tid).trim();
+        if (cleanTid && !refsMap.has(cleanTid)) {
+            refsMap.set(cleanTid, firestore.collection('_tenants').doc(cleanTid));
+        }
+    }
+
+    return Array.from(refsMap.values());
 }
 
 // ============================================================
@@ -10993,6 +11036,15 @@ async function uploadPaymentsToCloud() {
         let batchCount = 0;
         let totalRecords = 0;
         const tableCounts = {};
+
+        // ── توثيق مستند الـ tenant الأصلي في مجموعة _tenants ليصبح ظاهراً ومفهرساً ──
+        batch.set(tenantRoot, {
+            _updatedAt: new Date().toISOString(),
+            _tenantId: getCloudSyncTenantId(),
+            _appVersion: 'v16',
+            _url: typeof location !== 'undefined' ? location.href : ''
+        }, { merge: true });
+        batchCount++;
 
         for (const tableName of DEVICE_SYNC_FULL_TABLES) {
             const records = await StorageEngine.getAll(tableName);

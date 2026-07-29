@@ -2,15 +2,15 @@
   "name": "نظام إدارة الدروس",
   "short_name": "إدارة الدروس",
   "description": "نظام إدارة الدروس المتكامل",
-  "start_url": "./",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0f172a",
   "theme_color": "#4f46e5",
   "lang": "ar",
   "dir": "rtl",
-  "id": "./",
-  "scope": "./",
+  "id": "lesson-manager-pwa-app-v1",
   "prefer_related_applications": false,
   "icons": [
     {
@@ -38,29 +38,13 @@
       "purpose": "any"
     }
   ],
-  "screenshots": [
-    {
-      "src": "./app-icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "الصفحة الرئيسية"
-    },
-    {
-      "src": "./app-icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "الصفحة الرئيسية"
-    }
-  ],
   "categories": ["education", "productivity"],
   "shortcuts": [
     {
       "name": "تسجيل الحضور",
       "short_name": "الحضور",
       "description": "فتح نظام تسجيل الحضور مباشرة",
-      "url": "./#attendance",
+      "url": "./index.html#attendance",
       "icons": [{ "src": "./app-icon-192.png", "sizes": "192x192" }]
     }
   ]
