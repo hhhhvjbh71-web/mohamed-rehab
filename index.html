@@ -27,7 +27,15 @@
         window._deferredPrompt = e;
         window._pwaInstallReady = true;
         console.log('[PWA] beforeinstallprompt captured ✅');
-        if (typeof _showInstallBtn === 'function') _showInstallBtn();
+        // لو الدالة موجودة بالفعل → شغّلها فورًا
+        if (typeof _showInstallBtn === 'function') {
+          _showInstallBtn();
+        } else {
+          // لو الدالة لسه مش موجودة (الـ head script جه بدري) → نستنى الـ DOM
+          window.addEventListener('DOMContentLoaded', function() {
+            if (typeof _showInstallBtn === 'function') _showInstallBtn();
+          }, { once: true });
+        }
       });
 
       window.addEventListener('appinstalled', function() {
@@ -149,6 +157,19 @@
                     </div>
                     <p class="splash-welcome" style="color: #fff; font-size: 1.1rem; margin-top: 1rem;">جاري تهيئة
                         النظام...</p>
+                </div>
+
+                <!-- زر تثبيت PWA داخل الـ splash — يظهر فقط لو مش مثبت بالفعل -->
+                <div id="splash-pwa-install-wrap" style="display:none; margin-top:1.5rem;">
+                    <button id="splash-pwa-install-btn"
+                        onclick="triggerPWAInstall()"
+                        style="background:rgba(255,255,255,0.15); border:1.5px solid rgba(255,255,255,0.35);
+                               color:#fff; border-radius:14px; padding:0.7rem 1.5rem;
+                               font-size:0.95rem; font-weight:700; cursor:pointer;
+                               backdrop-filter:blur(8px); font-family:inherit;
+                               display:flex; align-items:center; gap:8px; margin:0 auto;">
+                        <i class="fas fa-download"></i> تثبيت التطبيق على الجهاز
+                    </button>
                 </div>
             </div>
         </div>
@@ -3895,18 +3916,25 @@
     }
 
     function _showInstallBtn() {
+      if (_isRunningAsInstalledPWA()) return;
+      // الزر في الـ header
       const btn = document.getElementById('pwa-install-btn');
-      if (btn && !_isRunningAsInstalledPWA()) {
+      if (btn) {
         btn.style.display = 'flex';
         btn.title = window._pwaInstallReady
           ? 'اضغط لتثبيت التطبيق على جهازك'
           : 'تثبيت التطبيق';
       }
+      // الزر داخل الـ splash screen
+      const splashWrap = document.getElementById('splash-pwa-install-wrap');
+      if (splashWrap) splashWrap.style.display = 'block';
     }
 
     function _hideInstallBtn() {
       const btn = document.getElementById('pwa-install-btn');
       if (btn) btn.style.display = 'none';
+      const splashWrap = document.getElementById('splash-pwa-install-wrap');
+      if (splashWrap) splashWrap.style.display = 'none';
     }
 
     // تحديث المرجع المحلي عند التقاط الحدث المبكر
@@ -3933,13 +3961,17 @@
       }
     });
 
-    // إظهار الزر فور جاهزية الصفحة
+    // إظهار الزر فور جاهزية الصفحة — بس لو في prompt فعلي من Chrome
     document.addEventListener('DOMContentLoaded', () => {
-      if (!_isRunningAsInstalledPWA()) {
-        _showInstallBtn();
-      } else {
+      if (_isRunningAsInstalledPWA()) {
         _hideInstallBtn();
+      } else if (window._deferredPrompt || window._pwaInstallReady) {
+        // الحدث جه بدري قبل DOMContentLoaded
+        _deferredPrompt = window._deferredPrompt || _deferredPrompt;
+        _showInstallBtn();
       }
+      // لو مفيش prompt لسه → Chrome لسه بيقيّم، منستناش ونخبيش الزر
+      // لما يجي beforeinstallprompt هيظهر تلقائيًا
     });
 
     function showInstallGuideModal(nativeAvailable) {

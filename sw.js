@@ -2,7 +2,7 @@
 //  sw.js  —  Service Worker مع دعم PWA والملاكمة الأوفلاين
 // ============================================================
 
-const CACHE_VERSION = 'lesson-manager-v17-domain-fix';
+const CACHE_VERSION = 'lesson-manager-v18-fetch-fix';
 
 const APP_SHELL = [
   './',
@@ -61,26 +61,40 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
+  // تجاهل طلبات خارج نفس الـ origin (Firebase, CDN, Fonts...)
+  if (url.origin !== self.location.origin) return;
+
   // 1. طلبات التنقل بين الصفحات (HTML Navigation)
-  if (request.mode === 'navigate' || (request.headers.get('accept') && request.headers.get('accept').includes('text/html'))) {
+  //    Network-first: نجيب من الشبكة، ولو فشلت نرجع الـ cache
+  if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => {
-        return caches.match('./index.html').then((cached) => {
-          if (cached) return cached;
-          return caches.match('index.html').then((c2) => c2 || caches.match('./'));
-        });
-      })
+      fetch(request)
+        .then((networkResponse) => {
+          // نحدّث الـ cache بالنسخة الجديدة
+          if (networkResponse && networkResponse.ok) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          // أوفلاين → نرجع index.html من الـ cache
+          return caches.match('./index.html')
+            .then((cached) => cached || caches.match('index.html'))
+            .then((cached) => cached || caches.match('./'));
+        })
     );
     return;
   }
 
   // 2. طلبات الموارد الثابتة (JS, CSS, Images, Manifest)
+  //    Cache-first: نجيب من الـ cache، ولو مش موجود نجيب من الشبكة ونحفظ
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       if (cachedResponse) return cachedResponse;
 
       return fetch(request).then((networkResponse) => {
-        if (networkResponse && networkResponse.ok && url.origin === self.location.origin) {
+        if (networkResponse && networkResponse.ok) {
           const clone = networkResponse.clone();
           caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
         }
